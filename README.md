@@ -11,7 +11,7 @@ The first line which defines 'input_file' tells the code where to look for the t
 
 Parameters are defined via an augmented FDS/GPyro syntax which is parsed in the code base. Variables in this syntax for these parametric studies are `{Variable_Name SWEEP First_Value, Second_Value, Number_Steps}`, where `SWEEP` is a protected word which lets ParFDS know that we will be attempting a linear parametric study in that variable.
 
-Parameters can be constrained by using the __optional__ keyword `axis` followed by the `axis_index`, an integer number denoting what group of swept parameters it belongs to. This is implemented with the following syntax: `{Variable_Name SWEEP First_Value, Second_Value, Number_Steps, axis, axis_index}`
+Parameters can be constrained by using the __optional__ keyword `axis` followed by the `axis_index`, an integer number denoting what group of swept parameters it belongs to. This is implemented with the following syntax: `{Variable_Name SWEEP First_Value, Second_Value, Number_Steps, axis, axis_index}`. Parameter sweeps without a specified axis will be treated as if they are unconstrained, unique axis (i.e. backwards compatible).
 
 The 'kwargs', dictionary sets things like: 
   - 'test_name' - which is the prefix appended to all the generated FDS input files and folder names
