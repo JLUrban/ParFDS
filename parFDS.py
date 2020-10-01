@@ -31,6 +31,28 @@ def build_pool(multiproc = True, pool_size = None):
 	else:
 		raise TypeError
 
+def gpyro_calculation(input_path):
+	"""
+	fds_calculation(input_path) 
+
+	assumes a valid input path has been passed to it. The function then does
+	a subprocess call (effectivly to the command line) to then run an mpirun 
+	job with the flag -np set to 'proc_per_simulation' (which is unfortunatly 
+	currently hard coded in this function)
+	"""
+	proc_per_simulation = 1
+
+	cur_dir = os.getcwd()
+	(input_path, input_file) = os.path.split(input_path)
+	(input_head, input_ext) = os.path.splitext(input_file)
+	os.chdir(input_path)
+
+	## RUN GPYRO:
+	retcode = subprocess.call(['mpiexec','-np',str(proc_per_simulation),\
+					'/usr/local/bin/gpyro_0.8186_gnu',input_file,'&>',input_head+".txt","&"])
+	os.chdir(cur_dir)
+	return retcode
+
 def fds_calculation(input_path):
 	"""
 	fds_calculation(input_path) 
@@ -46,8 +68,12 @@ def fds_calculation(input_path):
 	(input_path, input_file) = os.path.split(input_path)
 	(input_head, input_ext) = os.path.splitext(input_file)
 	os.chdir(input_path)
-	retcode = subprocess.call(['mpirun', '-np', str(proc_per_simulation),\
-					 'fds_mpi', input_file, '&>', input_head + '.err', '&'])
+
+	# RUN FDS
+	retcode = subprocess.call(['mpiexec','-np',str(proc_per_simulation),\
+					'fds',input_file,'&>',input_head+".err","&"])
+
+
 	os.chdir(cur_dir)
 	return retcode
 
@@ -59,8 +85,8 @@ def main(input_file, **kwargs):
 					  pool_size = kwargs['pool_size'])
 	#types = [type(x) for x in paths]
 	#print type(kwargs['funct']), types
-	# pool_outputs = pool.map(kwargs['funct'], paths)
-	pool_outputs = pool.map(fds_calculation, paths)
+	pool_outputs = pool.map(kwargs['funct'], paths)
+	#pool_outputs = pool.map(fds_calculation, paths)
 
 	pool.close()
 	return pool_outputs
@@ -90,12 +116,12 @@ def plotter(parameters, plotted_val = 'HRR',  **kwargs):
 			plt.savefig(key + ' ' + str(results[0]) + '.png', dpi = 300)
 
 if __name__ == '__main__':
-	input_file = 'example_input_file.fds'
+	input_file = 'SingleBrand.data'
 	kwargs = {'test_name' : 'StepBoxDan', 
 			  'base_path' : 'input_files', 
-			  'funct' : fds_calculation,
+			  'funct' : gpyro_calculation,
 			  'multiproc' : True, 
-			  'pool_size' : 1}
+			  'pool_size' : 6}
 
 	calling_dir = os.getcwd()
 	

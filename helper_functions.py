@@ -16,7 +16,7 @@ def dict_product(dicts):
 				{'a': 1, 'b': 3, 'c': 4}]
 	"""
 	# from http://stackoverflow.com/questions/5228158/cartesian-product-of-a-dictionary-of-lists
-	return (dict(itertools.izip(dicts, x)) for x in itertools.product(*dicts.itervalues()))
+	return (dict(zip(dicts, x)) for x in itertools.product(*dicts.values()))
 
 def dict_builder(params, test_name = ''): 
 	"""
@@ -35,7 +35,7 @@ def dict_builder(params, test_name = ''):
 
 	for value_set in dict_product(params):
 		title = "-".join(map(str, value_set.values())).replace('.', '_')
-		vals = [dict([a, str(x)] for a, x in value_set.iteritems())]
+		vals = [dict([a, str(x)] for a, x in value_set.items())]
 		vals = vals[0]
 		vals['TITLE'] = test_name + title
 		yield vals
@@ -77,8 +77,10 @@ def build_input_files(filename, base_path = 'input_files', out = sys.stdout):
     with open(filename, 'r') as f:
         txt = f.read()
     
-    param_dict, txt, IOoutput = FDSa_parser(txt, file_name, out)
-    formatted_trials, logfile, IOoutput = eval_parsed_FDS(param_dict, out)
+    param_dict, txt, IOoutput, axes = FDSa_parser(txt, file_name, out)
+    # param_dict, sweep_param_dict, prms_in_axis = caculate_params(param_dict, axes)
+    print("Here Here")
+    formatted_trials, logfile, IOoutput = eval_parsed_FDS(param_dict, axes, out)
         
     for i, value_set in enumerate(formatted_trials):
         tmp_txt = txt
@@ -130,8 +132,7 @@ def int2base(x, base=26):
     
     based on https://stackoverflow.com/questions/2267362
     """
-    digs = string.lowercase
-    
+    digs = string.ascii_lowercase
     assert type(x) is int, "x is not an integer: %r" % x
     assert type(base) is int, "base is not an integer: %r" % base
     
@@ -142,9 +143,10 @@ def int2base(x, base=26):
     digits = []
     y = x
     while y:
+        print(x % base)
         digits.append(digs[x % base])
-        y = x / base
-        x = (x / base) - 1
+        y = x // base
+        x = (x // base) - 1
     if sign < 0:
         digits.append('-')
         digits.reverse()
@@ -169,13 +171,33 @@ def FDSa_parser(txt, filename, IOoutput=sys.stdout):
     
     params = []
     params_raw = []
-    
+    axes = []
+
     for param in regex_find:
         params_raw.append(param.strip('{}'))
         params.append(param.strip('{}').split('SWEEP'))
-    
+
+        if "TITLE" not in param:
+            if 'axis' in param:
+                params[-1][-1] = params[-1][-1].split('axis')[0] 
+                axes.append(param.strip('{}').split('axis')[1])
+            else:
+                axes.append(None)
+
+        # print(params[-1])
+    print("axes")
+    # print(axes)
+ 
+      
+
+
+   
     params = [item.strip() for sublist in params for item in sublist]
+    # print(params) 
     
+
+
+
     # if length of params is non-even that means I can assume a title parameter
     # double check with the occurance of FDSa 'reserved' keywords 'title' or 'name'
     if (len(params) % 2 != 0) and (params[0].lower() == ('title')):
@@ -192,24 +214,53 @@ def FDSa_parser(txt, filename, IOoutput=sys.stdout):
     
     # dealing with the `:` and `.` issue in the FDS file due to 
     # key value restrictions in python 
-    for key, value in param_name_dict.iteritems():
-        txt = string.replace(txt, value, key)
+    for key, value in param_name_dict.items():
+        #txt = string.replace(txt, value, key)
+        txt = txt.replace(value, key)
 
     IOoutput.write('-'*10 + 'ParFDS input file interpreter' + '-'*10 + '\n')
     IOoutput.write('the following are the keys and values'+ '\n')
     IOoutput.write('seen in ' + filename + '\n')
+
+    #print(param_dict)
+    #assert False, "DEBUG"   
+
+ 
+    return param_dict, txt, IOoutput, axes
+
+
+def assign_dimensions(param_dict, axes):
     
-    return param_dict, txt, IOoutput
+    ## Assign Dimensions First
+    axes = np.array(axes)
+    reserved_dims = np.unique(axes[axes != None]).astype(int)
+    axis_list = []
+    prms_in_axis = {}
+    cnt = 0
+    for i, (ax, prm) in enumerate(zip(axes,param_dict.keys())):
+#         print(i, (ax, prm))
+        if ax is None:
+            while (cnt in axis_list) or (cnt in reserved_dims):
+                cnt += 1
+            axis_list.append(cnt)
+            prms_in_axis[axis_list[-1]] = [prm,]
+            
+        elif int(ax) in axis_list:
+#             print("here")
+            prms_in_axis[int(ax)].append(prm)
 
-def eval_parsed_FDS(param_dict, IOoutput = sys.stdout):       
-    """
-    eval_parsed_FDS(param_dict, IOoutput = sys.stdout) 
-
-    takes the dictionary that is returned by FDSa_parser and actually evaluates 
-    it to create python readable arrays that can be broken up for the parametric studies.
-    """
+        else:
+            axis_list.append(int(ax))
+            prms_in_axis[axis_list[-1]] = [prm,]
+#     print(prms_in_axis)
+    return prms_in_axis
+            
+def caculate_params(param_dict, axes):
+    ## Calculate Values
+    print('here')
+    prms_in_axis = assign_dimensions(param_dict, axes)
     permutations = 1
-    for key, value in param_dict.iteritems():
+    for key, value in param_dict.items():
         value_str = 'np.linspace(' + value.replace("'", "") +')'
         param_dict[key] = eval(value_str, {"__builtins__":None}, 
                               {"np": np,"np.linspace":np.linspace,"np.logspace":np.logspace})
@@ -217,32 +268,89 @@ def eval_parsed_FDS(param_dict, IOoutput = sys.stdout):
         
         assert float(value_split[2]) >= 1, "the number of steps is not an integer: %r" % float(value_split[2].strip())
         
-        permutations *= int(value_split[2])
         
-        IOoutput.write(key + ' varied between ' + str(value_split[0]) +\
-            ' and ' + str(value_split[1]) + ' in ' + str(value_split[2]) + ' step(s)' + '\n')
-    
-    IOoutput.write('-'*10 + ' '*10 + '-'*10 + ' '*10 + '-'*10 + '\n') 
-    IOoutput.write('for a total of ' + str(permutations) + ' trials' + '\n')
-    
-    trials = dict_product(param_dict)
+    # Check to make sure parameters on the same axis have the same number of steps
+    sweep_param_dict = {}
+    for ax in prms_in_axis.keys():
+        if len(prms_in_axis[ax]) > 1:
+            sweep_param_dict["CONSTRAINED_"+str(ax)] = np.arange(len(param_dict[prms_in_axis[ax][0]]))
+            for i , prm in enumerate(prms_in_axis[ax]):
+                if i == 0:
+                    # Store the first number of steps
+                    test = len(param_dict[prm])
+                else:
+                    # Check other number of steps against the first
+                    assert test == len(param_dict[prm]), "parameters on the same axis must have number of steps"
+                    
+                    
+        else:
+            sweep_param_dict[prms_in_axis[ax][0]] = param_dict[prms_in_axis[ax][0]]
+            
+            
+    # print('HEREHEHRHEHERH')
+    # print(sweep_param_dict)
+    return param_dict, sweep_param_dict, prms_in_axis
 
+
+def eval_parsed_FDS(param_dict, axes, IOoutput = sys.stdout):       
+    """
+    eval_parsed_FDS(param_dict, IOoutput = sys.stdout) 
+
+    takes the dictionary that is returned by FDSa_parser and actually evaluates 
+    it to create python readable arrays that can be broken up for the parametric studies.
+    """
+    # permutations = 1
+    # for key, value in param_dict.items():
+    #     value_str = 'np.linspace(' + value.replace("'", "") +')'
+    #     param_dict[key] = eval(value_str, {"__builtins__":None}, 
+    #                           {"np": np,"np.linspace":np.linspace,"np.logspace":np.logspace})
+    #     value_split = value.split(',')
+        
+    #     assert float(value_split[2]) >= 1, "the number of steps is not an integer: %r" % float(value_split[2].strip())
+        
+    #     permutations *= int(value_split[2])
+        
+    #     IOoutput.write(key + ' varied between ' + str(value_split[0]) +\
+    #         ' and ' + str(value_split[1]) + ' in ' + str(value_split[2]) + ' step(s)' + '\n')
+    
+    # IOoutput.write('-'*10 + ' '*10 + '-'*10 + ' '*10 + '-'*10 + '\n') 
+    # IOoutput.write('for a total of ' + str(permutations) + ' trials' + '\n')
+    # print("entering... eval_parsed_FDS")
+    param_dict, sweep_param_dict, prms_in_axis = caculate_params(param_dict, axes)
+    # print(param_dict)
+    # assert False,'ASSERT'
+    trials = dict_product(sweep_param_dict)
+
+    formatted_trials = []
+    permutations = 1
+    for vs in sweep_param_dict.values():
+        permutations *= len(vs)    
     logfile = 'There are a total of ' + str(permutations) + ' trials \n'
     newline = '\n' # for the newlines
-    formatted_trials = []
-    
+
+    print("permutations: "+str(permutations))
+
     base = 26
-    for i, v in enumerate(trials):
+    for i, trial_ in enumerate(trials):
+        ## JLU added in
+        print("i: "+str(i))
+        o_keys = trial_.keys()
+        for key in list(o_keys):
+            if key.count("CONSTRAINED_")==1:
+                ii = trial_.pop(key)
+                for prm in prms_in_axis[int(key.split("_")[1])]:
+                    trial_[prm] = param_dict[prm][ii]
+        ## \end
         case_temp = 'case ' + int2base(i, base) + ': '
         logfile += case_temp
         IOoutput.write(case_temp,)
-        for key, val in v.iteritems():
+        for key, val in trial_.items():
             kv_temp = key + ' ' + str(round(val, 2)) + ' '
             logfile += kv_temp + ' '
             IOoutput.write(kv_temp,)
         IOoutput.write(newline)
         logfile += newline
-        formatted_trials.append({key : value for key, value in v.items() })
+        formatted_trials.append({key : value for key, value in trial_.items() })
 
     
     """
